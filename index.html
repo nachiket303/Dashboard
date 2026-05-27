@@ -430,5 +430,355 @@ obs.observe(document.querySelector('.strip'));
 obs.observe(document.getElementById('skills'));
 document.querySelectorAll('.te').forEach(el=>{if(el.getBoundingClientRect().top<window.innerHeight-80)el.classList.add('on');});
 </script>
+
+<!-- ═══════════════════════════════════════
+     FLOATING RAG CHAT WIDGET
+     Change API_URL below to your Render URL
+     when you deploy the backend
+════════════════════════════════════════ -->
+<style>
+  /* ── Floating button ── */
+  #chat-fab{
+    position:fixed;bottom:28px;right:28px;z-index:9000;
+    width:56px;height:56px;border-radius:50%;
+    background:var(--teal);border:none;cursor:pointer;
+    box-shadow:0 4px 24px rgba(0,229,204,.35);
+    display:flex;align-items:center;justify-content:center;
+    transition:transform .2s,box-shadow .2s;
+  }
+  #chat-fab:hover{transform:scale(1.08);box-shadow:0 6px 32px rgba(0,229,204,.5);}
+  #chat-fab svg{width:26px;height:26px;fill:#000;}
+  /* unread badge */
+  #chat-badge{
+    position:absolute;top:-3px;right:-3px;
+    width:18px;height:18px;border-radius:50%;
+    background:#ff4d6d;border:2px solid var(--bg);
+    font-size:10px;font-weight:700;color:#fff;
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  /* ── Chat panel ── */
+  #chat-panel{
+    position:fixed;bottom:96px;right:28px;z-index:8999;
+    width:360px;
+    background:#0d0d1e;
+    border:1px solid #252548;
+    border-radius:16px;
+    box-shadow:0 16px 64px rgba(0,0,0,.6),0 0 0 1px rgba(0,229,204,.08);
+    display:none;flex-direction:column;overflow:hidden;
+    font-family:'Nunito',sans-serif;
+    animation:panelIn .25s cubic-bezier(.4,0,.2,1);
+  }
+  #chat-panel.open{display:flex;}
+  @keyframes panelIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+
+  /* panel header */
+  .cp-head{
+    background:#111128;
+    border-bottom:1px solid #1a1a35;
+    padding:14px 16px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .cp-avatar{
+    width:36px;height:36px;border-radius:50%;
+    background:rgba(0,229,204,.12);
+    border:1px solid rgba(0,229,204,.3);
+    display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;color:#00e5cc;
+    flex-shrink:0;
+  }
+  .cp-title{font-size:14px;font-weight:600;color:#eeeeff;line-height:1.2;}
+  .cp-sub{
+    font-size:11px;color:#6868a0;
+    display:flex;align-items:center;gap:5px;margin-top:2px;
+  }
+  .cp-sub-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0;}
+  .cp-close{
+    margin-left:auto;background:none;border:none;
+    color:#6868a0;cursor:pointer;font-size:18px;line-height:1;
+    padding:4px;border-radius:4px;transition:color .15s;
+  }
+  .cp-close:hover{color:#eeeeff;}
+
+  /* messages */
+  #cp-messages{
+    height:280px;overflow-y:auto;
+    padding:14px;display:flex;flex-direction:column;gap:10px;
+    scrollbar-width:thin;scrollbar-color:#1a1a35 transparent;
+  }
+  #cp-messages::-webkit-scrollbar{width:4px;}
+  #cp-messages::-webkit-scrollbar-track{background:transparent;}
+  #cp-messages::-webkit-scrollbar-thumb{background:#1a1a35;border-radius:4px;}
+
+  .cp-msg{display:flex;gap:8px;align-items:flex-start;}
+  .cp-msg.user{flex-direction:row-reverse;}
+  .cp-msg-av{
+    width:26px;height:26px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:700;flex-shrink:0;
+  }
+  .cp-msg.bot .cp-msg-av{background:rgba(0,229,204,.1);border:1px solid rgba(0,229,204,.25);color:#00a896;}
+  .cp-msg.user .cp-msg-av{background:rgba(77,159,255,.15);border:1px solid rgba(77,159,255,.25);color:#4d9fff;}
+  .cp-bubble{
+    padding:9px 13px;font-size:13px;line-height:1.65;
+    max-width:82%;
+  }
+  .cp-msg.bot .cp-bubble{
+    background:#13132a;border:1px solid #1a1a35;
+    border-radius:4px 14px 14px 14px;color:#b0b0d0;
+  }
+  .cp-msg.user .cp-bubble{
+    background:rgba(77,159,255,.1);border:1px solid rgba(77,159,255,.2);
+    border-radius:14px 4px 14px 14px;color:#eeeeff;
+  }
+  /* source badges */
+  .cp-sources{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+  .cp-src{
+    font-size:9px;font-weight:600;letter-spacing:.04em;
+    color:#00a896;background:rgba(0,229,204,.06);
+    border:1px solid rgba(0,229,204,.15);
+    padding:2px 7px;border-radius:100px;
+  }
+  /* typing dots */
+  .cp-typing{display:flex;gap:4px;align-items:center;padding:4px 0;}
+  .cp-dot{
+    width:6px;height:6px;border-radius:50%;background:#00e5cc;
+    animation:cpBlink 1.2s infinite;
+  }
+  .cp-dot:nth-child(2){animation-delay:.3s;}
+  .cp-dot:nth-child(3){animation-delay:.6s;}
+  @keyframes cpBlink{0%,100%{opacity:.2;}50%{opacity:1;}}
+
+  /* suggestion chips */
+  .cp-chips{
+    padding:8px 14px 0;
+    display:flex;flex-wrap:wrap;gap:6px;
+  }
+  .cp-chip{
+    font-size:10.5px;font-weight:500;
+    color:#6868a0;background:rgba(255,255,255,.03);
+    border:1px solid #252548;
+    padding:4px 11px;border-radius:100px;cursor:pointer;
+    transition:color .15s,border-color .15s,background .15s;
+    white-space:nowrap;
+  }
+  .cp-chip:hover{color:#00e5cc;border-color:rgba(0,229,204,.3);background:rgba(0,229,204,.05);}
+
+  /* input row */
+  .cp-input-row{
+    padding:10px 12px 14px;
+    display:flex;gap:8px;align-items:center;
+    border-top:1px solid #1a1a35;
+  }
+  #cp-input{
+    flex:1;background:#111128;border:1px solid #252548;
+    border-radius:8px;padding:9px 13px;
+    font-size:13px;color:#eeeeff;outline:none;
+    font-family:'Nunito',sans-serif;
+    transition:border-color .15s;
+  }
+  #cp-input::placeholder{color:#3a3a60;}
+  #cp-input:focus{border-color:rgba(0,229,204,.4);}
+  #cp-send{
+    width:36px;height:36px;border-radius:8px;
+    background:#00e5cc;border:none;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;transition:transform .15s,box-shadow .15s;
+  }
+  #cp-send:hover{transform:scale(1.06);box-shadow:0 0 16px rgba(0,229,204,.3);}
+  #cp-send svg{width:16px;height:16px;fill:#000;}
+
+  /* powered by */
+  .cp-footer{
+    text-align:center;padding:0 0 10px;
+    font-size:10px;color:#303060;letter-spacing:.04em;
+  }
+
+  @media(max-width:420px){
+    #chat-panel{width:calc(100vw - 24px);right:12px;bottom:88px;}
+    #chat-fab{right:16px;bottom:16px;}
+  }
+</style>
+
+<!-- FAB button -->
+<button id="chat-fab" onclick="toggleChat()" aria-label="Open AI chat">
+  <div id="chat-badge">1</div>
+  <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z"/></svg>
+</button>
+
+<!-- Chat panel -->
+<div id="chat-panel">
+  <!-- Header -->
+  <div class="cp-head">
+    <div class="cp-avatar">NS</div>
+    <div>
+      <div class="cp-title">Ask Nachiket's AI</div>
+      <div class="cp-sub">
+        <div class="cp-sub-dot"></div>
+        Knows everything about Nachiket's profile
+      </div>
+    </div>
+    <button class="cp-close" onclick="toggleChat()">✕</button>
+  </div>
+
+  <!-- Messages -->
+  <div id="cp-messages">
+    <div class="cp-msg bot">
+      <div class="cp-msg-av">NS</div>
+      <div class="cp-bubble">
+        Hi! I am Nachiket's AI assistant. Ask me anything about his background, skills, projects and experience.
+      </div>
+    </div>
+  </div>
+
+  <!-- Suggestion chips -->
+  <div class="cp-chips">
+    <span class="cp-chip" onclick="chipAsk(this)">Did you work with Databricks?</span>
+    <span class="cp-chip" onclick="chipAsk(this)">What ML models have you built?</span>
+    <span class="cp-chip" onclick="chipAsk(this)">Tell me about the RBC project</span>
+    <span class="cp-chip" onclick="chipAsk(this)">Do you know LangGraph?</span>
+  </div>
+
+  <!-- Input -->
+  <div class="cp-input-row">
+    <input id="cp-input" type="text" placeholder="Ask anything about Nachiket..."
+      onkeydown="if(event.key==='Enter')cpSend()">
+    <button id="cp-send" onclick="cpSend()">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    </button>
+  </div>
+
+  <div class="cp-footer">Powered by Groq · RAG · Only answers from Nachiket's documents</div>
+</div>
+
+<script>
+/* ─── CHANGE THIS URL when you deploy to Render ───
+   Local dev:  http://localhost:8000
+   Production: https://your-app-name.onrender.com
+──────────────────────────────────────────────────── */
+const API_URL = 'https://rag-portfolio-qm1e.onrender.com';
+
+let cpOpen = false;
+let cpBusy = false;
+
+function toggleChat(){
+  cpOpen = !cpOpen;
+  const panel = document.getElementById('chat-panel');
+  const badge = document.getElementById('chat-badge');
+  panel.classList.toggle('open', cpOpen);
+  if(cpOpen){ badge.style.display='none'; document.getElementById('cp-input').focus(); }
+}
+
+function chipAsk(el){
+  document.getElementById('cp-input').value = el.textContent;
+  cpSend();
+}
+
+function cpScrollBottom(){
+  const box = document.getElementById('cp-messages');
+  box.scrollTop = box.scrollHeight;
+}
+
+function cpAddMsg(role, text, sources){
+  const box = document.getElementById('cp-messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'cp-msg ' + role;
+
+  const av = document.createElement('div');
+  av.className = 'cp-msg-av';
+  av.textContent = role === 'bot' ? 'NS' : 'You';
+
+  const bub = document.createElement('div');
+  bub.className = 'cp-bubble';
+  bub.textContent = text;
+
+  // source badges
+  if(sources && sources.length > 0){
+    const srcRow = document.createElement('div');
+    srcRow.className = 'cp-sources';
+    sources.forEach(s => {
+      const badge = document.createElement('span');
+      badge.className = 'cp-src';
+      badge.textContent = s;
+      srcRow.appendChild(badge);
+    });
+    bub.appendChild(srcRow);
+  }
+
+  wrap.appendChild(av);
+  wrap.appendChild(bub);
+  box.appendChild(wrap);
+  cpScrollBottom();
+  return bub;
+}
+
+function cpAddTyping(){
+  const box = document.getElementById('cp-messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'cp-msg bot';
+  wrap.id = 'cp-typing-wrap';
+
+  const av = document.createElement('div');
+  av.className = 'cp-msg-av';
+  av.textContent = 'NS';
+
+  const bub = document.createElement('div');
+  bub.className = 'cp-bubble';
+  bub.innerHTML = '<div class="cp-typing"><div class="cp-dot"></div><div class="cp-dot"></div><div class="cp-dot"></div></div>';
+
+  wrap.appendChild(av);
+  wrap.appendChild(bub);
+  box.appendChild(wrap);
+  cpScrollBottom();
+}
+
+function cpRemoveTyping(){
+  const el = document.getElementById('cp-typing-wrap');
+  if(el) el.remove();
+}
+
+async function cpSend(){
+  if(cpBusy) return;
+  const input = document.getElementById('cp-input');
+  const question = input.value.trim();
+  if(!question) return;
+
+  input.value = '';
+  cpBusy = true;
+
+  cpAddMsg('user', question);
+  cpAddTyping();
+
+  try {
+    const res = await fetch(API_URL + '/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question })
+    });
+
+    cpRemoveTyping();
+
+    if(!res.ok) throw new Error('Server error ' + res.status);
+
+    const data = await res.json();
+
+    if(data.error){
+      cpAddMsg('bot', data.error, []);
+    } else {
+      cpAddMsg('bot', data.answer, data.sources || []);
+    }
+
+  } catch(err){
+    cpRemoveTyping();
+    // While backend is not yet deployed show a friendly message
+    cpAddMsg('bot',
+      'The AI backend is not connected yet. Once the RAG server is deployed to Render, this chat will be fully live. Stay tuned!',
+      []
+    );
+  }
+
+  cpBusy = false;
+}
+</script>
 </body>
 </html>
